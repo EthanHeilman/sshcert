@@ -64,11 +64,13 @@ type Cert struct {
 // If you would like to read more about how to configure the SigningArguments
 // then I found the following to be a good source of information:
 //   - https://github.com/metacloud/openssh/blob/master/PROTOCOL.certkeys
+//
 // If you would like to use default settings then call `NewSigningArguments`
 type SigningArguments struct {
 	Principals  []string
 	Permissions ssh.Permissions
 	Duration    time.Duration
+	KeyId       string // "the contents of [KeyId] are used to identify the identity principal in log messages"
 }
 
 // NewCA will instantiate a new CA and generate a fresh ecdsa Private key.
@@ -83,11 +85,15 @@ func NewCA() (CA, error) {
 // SignCert is called to sign an ssh public key and produce an ssh certificate.
 // It's required to pass in SigningArguments or the signing will fail.
 func (c *CA) SignCert(pub ssh.PublicKey, signArgs *SigningArguments) (*Cert, error) {
+	if signArgs.KeyId == "" {
+		signArgs.KeyId = randomHex()
+	}
+
 	cert := &ssh.Certificate{
 		Key:      pub,
 		Serial:   randomSerial(),
 		CertType: ssh.UserCert,
-		KeyId:    randomHex(),
+		KeyId:    signArgs.KeyId,
 		// Subtract 60 seconds to allow for some clock drift between the signature signing and the remote servers
 		ValidAfter:      uint64(time.Now().Add(-allowableDrift).Unix()),
 		ValidBefore:     uint64(time.Now().Add(signArgs.Duration).Unix()),
@@ -193,9 +199,14 @@ func (s *SigningArguments) SetDuration(d time.Duration) {
 	s.Duration = d
 }
 
-// // SetPrincipals will set the principals of a SigningArguments type.
+// SetPrincipals will set the principals of a SigningArguments type.
 func (s *SigningArguments) SetPrincipals(principals []string) {
 	s.Principals = principals
+}
+
+// SetKeyId will set the KeyId of a SigningArguments type.
+func (s *SigningArguments) SetkeyId(keyId string) {
+	s.KeyId = keyId
 }
 
 // ParsePublicKey will parse and return an SSH public key from it's
@@ -206,6 +217,9 @@ func ParsePublicKey(pub string) (ssh.PublicKey, error) {
 		return nil, errors.New("Invalid public key format")
 	}
 	pubBytes, err := base64.StdEncoding.DecodeString(pubParts[1])
+	if err != nil {
+		return nil, err
+	}
 	pubKey, err := ssh.ParsePublicKey(pubBytes)
 	if err != nil {
 		return nil, err
