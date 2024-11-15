@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCreatePrivateKey(t *testing.T) {
@@ -85,6 +88,59 @@ func TestSignCert(t *testing.T) {
 		}
 		if c.Type() != tc.algo {
 			t.Fatalf("Certificate and public key type do not match: %s != %s", c.Type(), tc.algo)
+		}
+	}
+}
+
+func TestSigningArguments(t *testing.T) {
+	tests := []struct {
+		signArgs SigningArguments
+	}{
+		{signArgs: SigningArguments{}},
+		{signArgs: *NewSigningArguments([]string{"guest", "root"})},
+		{signArgs: SigningArguments{Permissions: DefaultPermissions, Duration: time.Second * 15, Principals: []string{}}},
+		{signArgs: SigningArguments{Permissions: DefaultPermissions, Duration: time.Second * 15, Principals: []string{"alice"}}},
+		{signArgs: SigningArguments{Permissions: DefaultPermissions, Duration: time.Second * 15, Principals: []string{"alice", "bob"}}},
+		{signArgs: SigningArguments{Permissions: DefaultPermissions, Duration: time.Second * 15, Principals: []string{"alice"}, KeyId: ""}},
+		{signArgs: SigningArguments{Permissions: DefaultPermissions, Duration: time.Second * 15, Principals: []string{"alice"}, KeyId: "alice@example.com"}},
+	}
+
+	for _, tc := range tests {
+		ca, _ := NewCA()
+		pubBytes, _ := ioutil.ReadFile(fmt.Sprintf("testfiles/%s", "testkeys.pub"))
+		pub, _ := ParsePublicKey(string(pubBytes))
+		signArgs := tc.signArgs // Copy the signArgs because it is passed by reference and overwrites might hide bugs
+		c, err := ca.SignCert(pub, &signArgs)
+		if err != nil {
+			t.Fatalf("Could not sign cert: %s", err)
+		}
+
+		// If no KeyId is specified we set a 32 byte random hex value (64 characters)
+		if tc.signArgs.KeyId == "" {
+			if len(c.Certificate.KeyId) == 64 {
+				t.Fatalf("expected certificate.KeyId is the wrong length expected 64 but was %d", len(c.Certificate.KeyId))
+			}
+		} else if c.Certificate.KeyId != tc.signArgs.KeyId {
+			t.Fatalf("expected certificate.KeyId to be %s but was %s", tc.signArgs.KeyId, c.Certificate.KeyId)
+		}
+
+		// If the certificate reorders these the principals this test will fail
+		if !slices.Equal(c.Certificate.ValidPrincipals, tc.signArgs.Principals) {
+			t.Fatalf("expected certificate.ValidPrincipals to be %s but was %s", tc.signArgs.Principals, c.Certificate.ValidPrincipals)
+		}
+
+		// Check cert has validity duration we requested
+		certDuration := time.Duration((c.Certificate.ValidBefore - c.Certificate.ValidAfter) * uint64(time.Second))
+		expDuration := tc.signArgs.Duration + allowableDrift
+		if certDuration != expDuration {
+			t.Fatalf("expected certificate duration to be %s but was %s", certDuration, expDuration)
+		}
+
+		if !maps.Equal(c.Certificate.Permissions.CriticalOptions, tc.signArgs.Permissions.CriticalOptions) {
+			t.Fatalf("expected certificate CriticalOptions to be %s but was %s", c.Certificate.Permissions, tc.signArgs.Permissions)
+		}
+		if !maps.Equal(c.Certificate.Permissions.Extensions, tc.signArgs.Permissions.Extensions) {
+			t.Fatalf("expected certificate Extensions to be %s but was %s", c.Certificate.Permissions.Extensions, tc.signArgs.Permissions.Extensions)
 		}
 	}
 }
