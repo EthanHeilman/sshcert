@@ -1,4 +1,4 @@
-module github.com/ejcx/sshcert
+module go.cfdata.org/ztia/sshcert
 
 go 1.21.13
 
