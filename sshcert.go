@@ -205,7 +205,7 @@ func (s *SigningArguments) SetPrincipals(principals []string) {
 }
 
 // SetKeyId will set the KeyId of a SigningArguments type.
-func (s *SigningArguments) SetkeyId(keyId string) {
+func (s *SigningArguments) SetKeyId(keyId string) {
 	s.KeyId = keyId
 }
 
